@@ -1,99 +1,113 @@
-import Commander
+import ArgumentParser
 import Foundation
 import IMsgCore
 
-enum SendCommand {
-  static let spec = CommandSpec(
-    name: "send",
-    abstract: "Send a message (text and/or attachment)",
-    discussion: nil,
-    signature: CommandSignatures.withRuntimeFlags(
-      CommandSignature(
-        options: CommandSignatures.baseOptions() + [
-          .make(label: "to", names: [.long("to")], help: "phone number or email"),
-          .make(label: "chatID", names: [.long("chat-id")], help: "chat rowid"),
-          .make(
-            label: "chatIdentifier", names: [.long("chat-identifier")],
-            help: "chat identifier (e.g. iMessage;+;chat...)"),
-          .make(label: "chatGUID", names: [.long("chat-guid")], help: "chat guid"),
-          .make(label: "text", names: [.long("text")], help: "message body"),
-          .make(label: "file", names: [.long("file")], help: "path to attachment"),
-          .make(
-            label: "service", names: [.long("service")], help: "service to use: imessage|sms|auto"),
-          .make(
-            label: "region", names: [.long("region")],
-            help: "default region for phone normalization"),
-        ]
-      )
-    ),
-    usageExamples: [
-      "imsg send --to +14155551212 --text \"hi\"",
-      "imsg send --to +14155551212 --text \"hi\" --file ~/Desktop/pic.jpg --service imessage",
-      "imsg send --chat-id 1 --text \"hi\"",
-    ]
-  ) { values, runtime in
-    try await run(values: values, runtime: runtime)
-  }
+struct SendCommand: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    commandName: "send",
+    abstract: "Send a message (text and/or attachment)"
+  )
 
-  static func run(
-    values: ParsedValues,
-    runtime: RuntimeOptions,
-    sendMessage: @escaping (MessageSendOptions) throws -> Void = { try MessageSender().send($0) },
-    storeFactory: @escaping (String) throws -> MessageStore = { try MessageStore(path: $0) }
-  ) async throws {
-    let dbPath = values.option("db") ?? MessageStore.defaultPath
+  @OptionGroup
+  var global: GlobalOptions
+
+  @Option(name: .long, help: "Phone, email, or contact name")
+  var to = ""
+
+  @Option(name: .long, help: "Chat rowid")
+  var chatID: Int64?
+
+  @Option(name: .long, help: "Chat identifier")
+  var chatIdentifier = ""
+
+  @Option(name: .long, help: "Chat guid")
+  var chatGUID = ""
+
+  @Option(name: .long, help: "Message body text")
+  var text = ""
+
+  @Option(name: .long, help: "Path to attachment file")
+  var file = ""
+
+  @Option(name: .long, help: "Service to use: imessage, sms, auto")
+  var service = "auto"
+
+  @Option(name: .long, help: "Default region for phone normalization")
+  var region = "US"
+
+  mutating func run() async throws {
     let input = ChatTargetInput(
-      recipient: values.option("to") ?? "",
-      chatID: values.optionInt64("chatID"),
-      chatIdentifier: values.option("chatIdentifier") ?? "",
-      chatGUID: values.option("chatGUID") ?? ""
+      recipient: to,
+      chatID: chatID,
+      chatIdentifier: chatIdentifier,
+      chatGUID: chatGUID
     )
+
     try ChatTargetResolver.validateRecipientRequirements(
       input: input,
-      mixedTargetError: ParsedValuesError.invalidOption("to"),
-      missingRecipientError: ParsedValuesError.missingOption("to")
+      mixedTargetError: ValidationError("Use either '--to' or chat target options, not both."),
+      missingRecipientError: ValidationError("Missing expected argument '--to'.")
     )
 
-    let text = values.option("text") ?? ""
-    let file = values.option("file") ?? ""
-    if text.isEmpty && file.isEmpty {
-      throw ParsedValuesError.missingOption("text or file")
+    if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      && file.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    {
+      throw ValidationError("Specify at least one of '--text' or '--file'.")
     }
-    let serviceRaw = values.option("service") ?? "auto"
-    guard let service = MessageService(rawValue: serviceRaw) else {
-      throw IMsgError.invalidService(serviceRaw)
+
+    guard let messageService = MessageService(rawValue: service) else {
+      throw ValidationError("Invalid '--service' value '\(service)'. Use: auto, imessage, sms.")
     }
-    let region = values.option("region") ?? "US"
+
+    let contactsResolver = global.makeContactsResolver()
+    var resolvedInput = input
+    if !resolvedInput.recipient.isEmpty {
+      resolvedInput = ChatTargetInput(
+        recipient: try ContactsHelpers.resolveRecipient(resolvedInput.recipient, resolver: contactsResolver),
+        chatID: resolvedInput.chatID,
+        chatIdentifier: resolvedInput.chatIdentifier,
+        chatGUID: resolvedInput.chatGUID
+      )
+    }
 
     let resolvedTarget = try await ChatTargetResolver.resolveChatTarget(
-      input: input,
+      input: resolvedInput,
       lookupChat: { chatID in
-        let store = try storeFactory(dbPath)
+        let store = try MessageStore(path: global.db)
         return try store.chatInfo(chatID: chatID)
       },
       unknownChatError: { chatID in
-        IMsgError.invalidChatTarget("Unknown chat id \(chatID)")
+        ValidationError("Unknown chat id \(chatID)")
       }
     )
-    if input.hasChatTarget && resolvedTarget.preferredIdentifier == nil {
-      throw IMsgError.invalidChatTarget("Missing chat identifier or guid")
+
+    if resolvedInput.hasChatTarget && resolvedTarget.preferredIdentifier == nil {
+      throw ValidationError("Missing chat identifier or guid for selected chat target.")
     }
 
-    try sendMessage(
+    try MessageSender().send(
       MessageSendOptions(
-        recipient: input.recipient,
+        recipient: resolvedInput.recipient,
         text: text,
         attachmentPath: file,
-        service: service,
+        service: messageService,
         region: region,
         chatIdentifier: resolvedTarget.chatIdentifier,
         chatGUID: resolvedTarget.chatGUID
-      ))
+      )
+    )
 
-    if runtime.jsonOutput {
-      try StdoutWriter.writeJSONLine(["status": "sent"])
-    } else {
-      StdoutWriter.writeLine("sent")
+    if global.json {
+      try StdoutWriter.writeJSONLine([
+        "status": "sent",
+        "recipient": resolvedInput.recipient,
+      ])
+      return
     }
+
+    if global.verbose, !to.isEmpty, to != resolvedInput.recipient {
+      StdoutWriter.writeLine("resolved '\(to)' -> '\(resolvedInput.recipient)'")
+    }
+    StdoutWriter.writeLine("sent")
   }
 }

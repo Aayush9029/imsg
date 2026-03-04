@@ -1,73 +1,71 @@
-import Commander
+import ArgumentParser
 import Foundation
 import IMsgCore
 
-enum HistoryCommand {
-  static let spec = CommandSpec(
-    name: "history",
-    abstract: "Show recent messages for a chat",
-    discussion: nil,
-    signature: CommandSignatures.withRuntimeFlags(
-      CommandSignature(
-        options: CommandSignatures.baseOptions() + [
-          .make(label: "chatID", names: [.long("chat-id")], help: "chat rowid from 'imsg chats'"),
-          .make(label: "limit", names: [.long("limit")], help: "Number of messages to show"),
-          .make(
-            label: "participants", names: [.long("participants")],
-            help: "filter by participant handles", parsing: .upToNextOption),
-          .make(label: "start", names: [.long("start")], help: "ISO8601 start (inclusive)"),
-          .make(label: "end", names: [.long("end")], help: "ISO8601 end (exclusive)"),
-        ],
-        flags: [
-          .make(
-            label: "attachments", names: [.long("attachments")], help: "include attachment metadata"
-          )
-        ]
-      )
-    ),
-    usageExamples: [
-      "imsg history --chat-id 1 --limit 10 --attachments",
-      "imsg history --chat-id 1 --start 2025-01-01T00:00:00Z --json",
-    ]
-  ) { values, runtime in
-    guard let chatID = values.optionInt64("chatID") else {
-      throw ParsedValuesError.missingOption("chat-id")
-    }
-    let dbPath = values.option("db") ?? MessageStore.defaultPath
-    let limit = values.optionInt("limit") ?? 50
-    let showAttachments = values.flag("attachments")
-    let participants = values.optionValues("participants")
-      .flatMap { $0.split(separator: ",").map { String($0) } }
-      .filter { !$0.isEmpty }
+struct HistoryCommand: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    commandName: "history",
+    abstract: "Show recent messages for a chat"
+  )
+
+  @OptionGroup
+  var global: GlobalOptions
+
+  @Option(name: .long, help: "Chat rowid from 'imsg chats'")
+  var chatID: Int64
+
+  @Option(name: .long, help: "Number of messages to show")
+  var limit = 50
+
+  @Option(name: .long, parsing: .upToNextOption, help: "Filter by participant handles")
+  var participants: [String] = []
+
+  @Option(name: .long, help: "ISO8601 start date (inclusive)")
+  var start: String?
+
+  @Option(name: .long, help: "ISO8601 end date (exclusive)")
+  var end: String?
+
+  @Flag(name: .long, help: "Include attachment metadata")
+  var attachments = false
+
+  mutating func run() async throws {
+    let parsedParticipants = ContactsHelpers.parseParticipantValues(participants)
     let filter = try MessageFilter.fromISO(
-      participants: participants,
-      startISO: values.option("start"),
-      endISO: values.option("end")
+      participants: parsedParticipants,
+      startISO: start,
+      endISO: end
     )
 
-    let store = try MessageStore(path: dbPath)
-    let filtered = try store.messages(chatID: chatID, limit: limit, filter: filter)
+    let store = try MessageStore(path: global.db)
+    let messages = try store.messages(chatID: chatID, limit: limit, filter: filter)
+    let contactsResolver = global.makeContactsResolver()
 
-    if runtime.jsonOutput {
-      for message in filtered {
-        let attachments = try store.attachments(for: message.rowID)
+    if global.json {
+      for message in messages {
+        let metas = try store.attachments(for: message.rowID)
         let reactions = try store.reactions(for: message.rowID)
+        let senderName = ContactsHelpers.displayName(for: message.sender, resolver: contactsResolver)
         let payload = MessagePayload(
           message: message,
-          attachments: attachments,
-          reactions: reactions
+          attachments: metas,
+          reactions: reactions,
+          senderName: senderName
         )
         try StdoutWriter.writeJSONLine(payload)
       }
       return
     }
 
-    for message in filtered {
+    for message in messages {
       let direction = message.isFromMe ? "sent" : "recv"
+      let senderName = ContactsHelpers.displayName(for: message.sender, resolver: contactsResolver)
+      let senderLabel = senderName ?? message.sender
       let timestamp = CLIISO8601.format(message.date)
-      StdoutWriter.writeLine("\(timestamp) [\(direction)] \(message.sender): \(message.text)")
+      StdoutWriter.writeLine("\(timestamp) [\(direction)] \(senderLabel): \(message.text)")
+
       if message.attachmentsCount > 0 {
-        if showAttachments {
+        if attachments {
           let metas = try store.attachments(for: message.rowID)
           for meta in metas {
             let name = displayName(for: meta)

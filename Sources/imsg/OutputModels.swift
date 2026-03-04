@@ -5,13 +5,15 @@ struct ChatPayload: Codable {
   let id: Int64
   let name: String
   let identifier: String
+  let contactName: String?
   let service: String
   let lastMessageAt: String
 
-  init(chat: Chat) {
+  init(chat: Chat, contactName: String?) {
     self.id = chat.id
     self.name = chat.name
     self.identifier = chat.identifier
+    self.contactName = contactName
     self.service = chat.service
     self.lastMessageAt = CLIISO8601.format(chat.lastMessageAt)
   }
@@ -20,6 +22,7 @@ struct ChatPayload: Codable {
     case id
     case name
     case identifier
+    case contactName = "contact_name"
     case service
     case lastMessageAt = "last_message_at"
   }
@@ -32,6 +35,7 @@ struct MessagePayload: Codable {
   let replyToGUID: String?
   let threadOriginatorGUID: String?
   let sender: String
+  let senderName: String?
   let isFromMe: Bool
   let text: String
   let createdAt: String
@@ -49,13 +53,19 @@ struct MessagePayload: Codable {
   let isReactionAdd: Bool?
   let reactedToGUID: String?
 
-  init(message: Message, attachments: [AttachmentMeta], reactions: [Reaction] = []) {
+  init(
+    message: Message,
+    attachments: [AttachmentMeta],
+    reactions: [Reaction] = [],
+    senderName: String? = nil
+  ) {
     self.id = message.rowID
     self.chatID = message.chatID
     self.guid = message.guid
     self.replyToGUID = message.replyToGUID
     self.threadOriginatorGUID = message.threadOriginatorGUID
     self.sender = message.sender
+    self.senderName = senderName
     self.isFromMe = message.isFromMe
     self.text = message.text
     self.createdAt = CLIISO8601.format(message.date)
@@ -86,6 +96,7 @@ struct MessagePayload: Codable {
     case replyToGUID = "reply_to_guid"
     case threadOriginatorGUID = "thread_originator_guid"
     case sender
+    case senderName = "sender_name"
     case isFromMe = "is_from_me"
     case text
     case createdAt = "created_at"

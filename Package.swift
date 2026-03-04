@@ -9,7 +9,7 @@ let package = Package(
         .executable(name: "imsg", targets: ["imsg"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/steipete/Commander.git", from: "0.2.1"),
+        .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
         .package(url: "https://github.com/stephencelis/SQLite.swift.git", from: "0.15.5"),
         .package(url: "https://github.com/marmelroy/PhoneNumberKit.git", from: "4.2.5"),
     ],
@@ -22,36 +22,30 @@ let package = Package(
             ],
             linkerSettings: [
                 .linkedFramework("ScriptingBridge"),
+                .linkedFramework("Contacts"),
             ]
         ),
-    .executableTarget(
-        name: "imsg",
-        dependencies: [
-            "IMsgCore",
-            .product(name: "Commander", package: "Commander"),
-        ],
-        exclude: [
-            "Resources/Info.plist",
-        ],
-        linkerSettings: [
-            .unsafeFlags([
-                "-Xlinker", "-sectcreate",
-                "-Xlinker", "__TEXT",
-                "-Xlinker", "__info_plist",
-                "-Xlinker", "Sources/imsg/Resources/Info.plist",
-            ])
-        ]
-    ),
+        .executableTarget(
+            name: "imsg",
+            dependencies: [
+                "IMsgCore",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
+            exclude: [
+                "Resources/Info.plist",
+            ],
+            linkerSettings: [
+                .unsafeFlags([
+                    "-Xlinker", "-sectcreate",
+                    "-Xlinker", "__TEXT",
+                    "-Xlinker", "__info_plist",
+                    "-Xlinker", "Sources/imsg/Resources/Info.plist",
+                ])
+            ]
+        ),
         .testTarget(
             name: "IMsgCoreTests",
             dependencies: [
-                "IMsgCore",
-            ]
-        ),
-        .testTarget(
-            name: "imsgTests",
-            dependencies: [
-                "imsg",
                 "IMsgCore",
             ]
         ),

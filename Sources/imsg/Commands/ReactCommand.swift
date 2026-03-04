@@ -1,82 +1,40 @@
-import Commander
+import ArgumentParser
 import Foundation
 import IMsgCore
 
-enum ReactCommand {
-  static let spec = CommandSpec(
-    name: "react",
-    abstract: "Send a tapback reaction to the most recent message",
-    discussion: """
-      Sends a tapback reaction to the most recent incoming message in the specified chat.
+struct ReactCommand: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    commandName: "react",
+    abstract: "Send a tapback reaction to the most recent message"
+  )
 
-      IMPORTANT LIMITATIONS:
-      - Only reacts to the MOST RECENT incoming message in the conversation
-      - Requires Messages.app to be running
-      - Uses UI automation (System Events) which requires accessibility permissions
+  @OptionGroup
+  var global: GlobalOptions
 
-      Reaction types:
-        love (❤️), like (👍), dislike (👎), laugh (😂), emphasis (‼️), question (❓)
-        Or any single emoji for custom reactions (iOS 17+ / macOS 14+)
-      """,
-    signature: CommandSignatures.withRuntimeFlags(
-      CommandSignature(
-        options: CommandSignatures.baseOptions() + [
-          .make(label: "chatID", names: [.long("chat-id")], help: "chat rowid to react in"),
-          .make(
-            label: "reaction", names: [.long("reaction"), .short("r")],
-            help: "reaction type: love, like, dislike, laugh, emphasis, question, or emoji"),
-        ],
-        flags: []
-      )
-    ),
-    usageExamples: [
-      "imsg react --chat-id 1 --reaction like",
-      "imsg react --chat-id 1 -r love",
-      "imsg react --chat-id 1 -r 🎉",
-    ]
-  ) { values, runtime in
-    try await run(values: values, runtime: runtime)
-  }
+  @Option(name: .long, help: "Chat rowid to react in")
+  var chatID: Int64
 
-  static func run(
-    values: ParsedValues,
-    runtime: RuntimeOptions,
-    storeFactory: @escaping (String) throws -> MessageStore = { try MessageStore(path: $0) },
-    appleScriptRunner: @escaping (String, [String]) throws -> Void = { source, arguments in
-      try runAppleScript(source, arguments: arguments)
+  @Option(name: [.short, .long], help: "Reaction: love, like, dislike, laugh, emphasis, question, or emoji")
+  var reaction: String
+
+  mutating func run() async throws {
+    guard let reactionType = ReactionType.parse(reaction) else {
+      throw ValidationError("Invalid reaction '\(reaction)'.")
     }
-  ) async throws {
-    guard let chatID = values.optionInt64("chatID") else {
-      throw ParsedValuesError.missingOption("chat-id")
-    }
-    guard let reactionString = values.option("reaction") else {
-      throw ParsedValuesError.missingOption("reaction")
-    }
-    guard let reactionType = ReactionType.parse(reactionString) else {
-      throw IMsgError.invalidReaction(reactionString)
-    }
+
     if case .custom(let emoji) = reactionType, !isSingleEmoji(emoji) {
-      throw IMsgError.invalidReaction(reactionString)
+      throw ValidationError("Invalid custom emoji reaction '\(reaction)'.")
     }
 
-    // Get chat info for the GUID
-    let dbPath = values.option("db") ?? MessageStore.defaultPath
-    let store = try storeFactory(dbPath)
+    let store = try MessageStore(path: global.db)
     guard let chatInfo = try store.chatInfo(chatID: chatID) else {
       throw IMsgError.chatNotFound(chatID: chatID)
     }
 
     let chatLookup = preferredChatLookup(chatInfo: chatInfo)
+    try sendReaction(reactionType: reactionType, chatGUID: chatInfo.guid, chatLookup: chatLookup)
 
-    // Send the reaction via AppleScript + System Events
-    try sendReaction(
-      reactionType: reactionType,
-      chatGUID: chatInfo.guid,
-      chatLookup: chatLookup,
-      appleScriptRunner: appleScriptRunner
-    )
-
-    if runtime.jsonOutput {
+    if global.json {
       let result = ReactResult(
         success: true,
         chatID: chatID,
@@ -84,17 +42,13 @@ enum ReactCommand {
         reactionEmoji: reactionType.emoji
       )
       try JSONLines.print(result)
-    } else {
-      print("Sent \(reactionType.emoji) reaction to chat \(chatID)")
+      return
     }
+
+    StdoutWriter.writeLine("Sent \(reactionType.emoji) reaction to chat \(chatID)")
   }
 
-  private static func sendReaction(
-    reactionType: ReactionType,
-    chatGUID: String,
-    chatLookup: String,
-    appleScriptRunner: @escaping (String, [String]) throws -> Void
-  ) throws {
+  private func sendReaction(reactionType: ReactionType, chatGUID: String, chatLookup: String) throws {
     let keyNumber: Int
     switch reactionType {
     case .love: keyNumber = 1
@@ -135,7 +89,7 @@ enum ReactCommand {
           end tell
         end run
         """
-      try appleScriptRunner(script, [chatGUID, chatLookup, reactionType.emoji])
+      try runAppleScript(script, arguments: [chatGUID, chatLookup, reactionType.emoji])
       return
     }
 
@@ -168,10 +122,10 @@ enum ReactCommand {
         end tell
       end run
       """
-    try appleScriptRunner(script, [chatGUID, chatLookup, "\(keyNumber)"])
+    try runAppleScript(script, arguments: [chatGUID, chatLookup, "\(keyNumber)"])
   }
 
-  private static func preferredChatLookup(chatInfo: ChatInfo) -> String {
+  private func preferredChatLookup(chatInfo: ChatInfo) -> String {
     let preferred = chatInfo.name.trimmingCharacters(in: .whitespacesAndNewlines)
     if !preferred.isEmpty {
       return preferred
@@ -183,14 +137,14 @@ enum ReactCommand {
     return chatInfo.guid
   }
 
-  private static func isSingleEmoji(_ value: String) -> Bool {
+  private func isSingleEmoji(_ value: String) -> Bool {
     let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
     guard trimmed.count == 1 else { return false }
     guard let scalar = trimmed.unicodeScalars.first else { return false }
     return scalar.properties.isEmoji || scalar.properties.isEmojiPresentation
   }
 
-  private static func runAppleScript(_ source: String, arguments: [String]) throws {
+  private func runAppleScript(_ source: String, arguments: [String]) throws {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
     process.arguments = ["-l", "AppleScript", "-"] + arguments

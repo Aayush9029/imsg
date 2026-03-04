@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleIdentifier</key>
-  <string>com.steipete.imsg</string>
+  <string>com.aayush9029.imsg</string>
   <key>CFBundleName</key>
   <string>imsg</string>
   <key>CFBundleExecutable</key>
@@ -11,10 +11,12 @@
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.5.0</string>
+  <string>0.1.0</string>
   <key>CFBundleVersion</key>
-  <string>0.5.0</string>
+  <string>0.1.0</string>
   <key>NSAppleEventsUsageDescription</key>
   <string>Send messages via Messages.app.</string>
+  <key>NSContactsUsageDescription</key>
+  <string>Resolve phone numbers and emails to contact names in chat output.</string>
 </dict>
 </plist>
