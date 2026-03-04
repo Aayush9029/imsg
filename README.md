@@ -1,6 +1,7 @@
 # imsg
 
-Human-first macOS CLI for Messages.app. Read chats/history/watch from `chat.db`, send messages from terminal, and resolve phone/email handles to Contacts names.
+
+macOS CLI for Messages.app. Read chats/history/watch from `chat.db`, send messages from terminal, and resolve phone/email handles to Contacts names.
 
 This fork removes JSON-RPC mode and focuses on direct terminal usage.
 
