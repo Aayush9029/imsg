@@ -1,28 +1,22 @@
 # imsg
+macOS CLI for Messages.app
+
+Read chats/history/watch from `chat.db`, send messages from terminal, and resolve phone/email handles to Contacts names.
+
+<img width="3752" height="1328" alt="CleanShot 2026-03-04 at 18 37 27@2x" src="https://github.com/user-attachments/assets/a52602e2-dd5e-4e11-9273-bc06ec397b4c" />
 
 
-macOS CLI for Messages.app. Read chats/history/watch from `chat.db`, send messages from terminal, and resolve phone/email handles to Contacts names.
 
-This fork removes JSON-RPC mode and focuses on direct terminal usage.
+
+---
+
+> [!NOTE]  
+> This fork removes JSON-RPC mode and focuses on direct terminal usage.
 
 ## Installation
 
 ```bash
 brew install aayush9029/tap/imsg
-```
-
-Tap-first alternative:
-
-```bash
-brew tap aayush9029/tap
-brew install imsg
-```
-
-Build locally:
-
-```bash
-swift build -c release
-./.build/release/imsg --help
 ```
 
 ## Usage
@@ -38,7 +32,7 @@ imsg history --chat-id 1 --limit 25 --attachments
 imsg watch --chat-id 1 --reactions --debounce 250ms
 
 # send by phone/email or contact name
-imsg send --to "Ayush" --text "test"
+imsg send --to "Aayush" --text "test lol"
 
 # react to latest message in chat
 imsg react --chat-id 1 --reaction like
@@ -116,20 +110,3 @@ imsg --generate-completion-script zsh
 3. Contacts access (optional, for name resolution)
 
 System Settings path: `Privacy & Security`.
-
-## Requirements
-
-- macOS 14+
-- Messages.app signed in
-- SMS relay configured on iPhone for SMS sends
-
-## Development
-
-```bash
-swift build
-swift test
-```
-
-## License
-
-MIT
