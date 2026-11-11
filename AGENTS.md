@@ -1,31 +1,29 @@
-# Repository Guidelines
+# imsg
 
-## Project Structure & Module Organization
-- `Sources/imsg` holds the CLI entrypoint and command wiring.
-- `Sources/IMsgCore` contains SQLite access, watchers, AppleScript send logic, and helpers.
-- `bin/` is created by `make build` for local artifacts.
+A Swift CLI for Messages.app: it reads chats, history, and live updates from `chat.db`, sends messages and reactions, and shows Contacts names. This repository is a fork of `steipete/imsg` (remote `upstream`) without the JSON-RPC mode. It ships through `aayush9029/tap`. Status: shipped.
 
-## Build, Test, and Development Commands
-- `make imsg` — clean rebuild + run debug CLI (use `ARGS=...`).
-- `make build` — universal release build into `bin/`.
-- `make lint` — run `swift format` lint + `swiftlint`.
-- `make test` — run `swift test` after syncing version + patching deps.
+## Commands
 
-## Coding Style & Naming Conventions
-- Swift 6 module; prefer concrete types, early returns, and minimal globals.
-- Formatting is enforced by `swift format` and `swiftlint`.
-- CLI flags use long-form, kebab-case (`--chat-id`, `--attachments`).
+| Task | Command |
+|------|---------|
+| Rebuild and run the debug CLI | `make imsg ARGS="chats --limit 5"` |
+| Test (syncs the version and patches dependencies first) | `make test` |
+| Lint (`swift format` and `swiftlint`) | `make lint` |
+| Format | `make format` |
+| Universal release build into `bin/` | `make build` |
 
-## Testing Guidelines
-- Unit tests live in `Tests/` as `*Tests.swift`.
-- Prefer deterministic fixtures over touching the live Messages DB.
-- Add regression tests for fixes touching parsing, filtering, or attachment metadata.
+## Architecture
 
-## Commit & Pull Request Guidelines
-- Follow the existing short, lowercase prefixes seen in history (`ci:`, `chore:`, `fix:`, `feat:`) with an imperative summary (e.g., `fix: handle missing attachments`).
-- PRs should include: brief description, steps to repro/verify, and outputs of `make lint` and `make test`. For CLI changes, include sample commands and before/after snippets.
-- Keep changeset focused; avoid drive-by refactors unless they reduce risk or remove duplication in touched areas.
+- `Sources/imsg` holds the argument-parser commands (`chats`, `history`, `watch`, `send`, `react`) and the output.
+- `Sources/IMsgCore` holds the read-only SQLite access, the file watcher, the AppleScript sender, the Contacts lookup, and the attributed-body parser.
 
-## Security & macOS Permissions
-- The tool needs read-only access to `~/Library/Messages/chat.db`; ensure the terminal has Full Disk Access before running tests that touch the DB.
-- Sending requires Automation permission for Messages.app and SMS relay configured in macOS/iOS; document any manual steps needed for reviewers.
+## Rules
+
+- `version.env` holds the version. `scripts/generate-version.sh` writes `Sources/imsg/Version.swift` and `Sources/imsg/Resources/Info.plist`. Do not edit those two files by hand.
+- `scripts/patch-deps.sh` patches the SQLite.swift and PhoneNumberKit checkouts after `swift package resolve`. Use the `make` targets; a plain `swift build` after a fresh resolve can fail.
+- The tap formula builds from the source tag and installs `PhoneNumberKit_PhoneNumberKit.bundle` next to the binary. Keep that bundle in the build output.
+- Open `chat.db` read-only. Tests use fixtures, not the live Messages database.
+- Reads need Full Disk Access for the terminal. Sends need Automation access to Messages.app.
+- `docs/RELEASING.md` and `scripts/sign-and-notarize.sh` come from upstream and default to the upstream signing identity. Set `CODESIGN_IDENTITY` to your own `Developer ID Application` identity.
+- Use long kebab-case flags (`--chat-id`). Use commit prefixes `feat:`, `fix:`, `chore:`, and `ci:`.
+- When you merge from `upstream`, keep the fork changes: no JSON-RPC mode and the Contacts-aware command set.
